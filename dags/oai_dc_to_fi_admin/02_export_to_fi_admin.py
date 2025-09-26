@@ -47,7 +47,7 @@ def get_doc_template(type='analytic'):
         "BIREME_reviewed" : False,
         "cooperative_center_code" : "BR1.1",
         "created_by" : 2,
-        "status" : -2,
+        "status" : 0,
         "software_version" : "BIREME HARVEST 0.1"
       }
     },
