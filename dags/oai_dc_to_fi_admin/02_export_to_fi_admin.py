@@ -193,7 +193,7 @@ def export_oai_dc_to_fi_admin():
         exported_count = 0
         error_count = 0
 
-        results = mongo_hook.find(MONGO_COLLECTION, {})
+        results = mongo_hook.find(MONGO_COLLECTION, {},  no_cursor_timeout=True, batch_size=1000)
         for result in results:
             # Initialize reference information for error logging
             record_id = result.get('_id', 'unknown')
