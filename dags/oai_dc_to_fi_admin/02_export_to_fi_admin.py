@@ -214,8 +214,8 @@ def export_oai_dc_to_fi_admin():
                 doc[0]['fields']['interoperability_source'] = interoperability_source
                 doc_source[0]['fields']['interoperability_source'] = interoperability_source
 
-                if 'abstracts' in result:
-                    doc[0]['fields']['abstract'] = result['abstracts']
+                if 'abstract' in result:
+                    doc[0]['fields']['abstract'] = result['abstract']
 
                 if 'subjects' in result:
                     doc[0]['fields']['author_keyword'] = result['subjects']
@@ -235,7 +235,7 @@ def export_oai_dc_to_fi_admin():
                     doc[0]['fields']['publication_date_normalized'] = result['date']
 
                 if 'fulltext_url' in result:
-                    doc[0]['fields']['electronic_address'] = json.dumps([{'_u': result['fulltext_url']}])
+                    doc[0]['fields']['electronic_address'] = json.dumps([{'_g': True, '_u': result['fulltext_url']}])
 
                 if 'volume' in result:
                     doc_source[1]['fields']['volume_serial'] = result['volume']
