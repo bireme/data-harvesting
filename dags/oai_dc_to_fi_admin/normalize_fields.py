@@ -85,11 +85,8 @@ def normalize_pagination(pages):
 
     if '-' in pages:
         pages = pages.split('-')
-        pages_f = int(pages[0])
-        pages_l = int(pages[1])
-
-        if pages_l < pages_f:
-            pages_l = pages_f + pages_l
+        pages_f = pages[0].strip()
+        pages_l = pages[1].strip()
 
         pages_json = {'_f': str(pages_f), '_l': str(pages_l)}
         pages_normalized.append(pages_json)

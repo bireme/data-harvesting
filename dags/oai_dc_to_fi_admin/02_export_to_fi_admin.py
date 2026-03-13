@@ -370,7 +370,6 @@ def export_oai_dc_to_fi_admin():
                 error_context = {
                     'record_id': str(record_id),
                     'record_identifier': str(record_identifier),
-                    'reference_title': reference_title,
                     'error_type': type(e).__name__,
                     'error_message': str(e)
                 }
