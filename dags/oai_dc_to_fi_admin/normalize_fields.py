@@ -45,8 +45,11 @@ def get_short_title_and_issn(db_conn, journal, issn):
       a.issn
     FROM
       title_title AS a
+    JOIN title_indexrange b 
+      ON b.title_id = a.id
     WHERE
-      (a.shortened_title = %s OR a.title = %s OR a.issn = %s)
+      b.indexer_cc_code <> '' AND
+      (a.title LIKE %s OR a.issn = %s)
     LIMIT 1
   """
 
