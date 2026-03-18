@@ -55,7 +55,7 @@ def get_short_title_and_issn(db_conn, journal, issn):
 
   journal_issn = {}
   with db_conn.cursor() as cursor:
-    cursor.execute(sql, (journal, journal, issn))
+    cursor.execute(sql, (journal, issn))
     result = cursor.fetchone()
     if result:
       journal_issn['journal'] = result[0]
