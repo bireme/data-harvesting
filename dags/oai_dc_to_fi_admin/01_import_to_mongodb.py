@@ -110,9 +110,14 @@ def import_oai_dc_to_mongodb():
 
                 if len(source_parts) == 3:
                     record_info['pagination'] = source_parts.pop().strip()
-                record_info['journal'] = source_parts.pop(0).strip()
+                
+                if len(source_parts) >= 1:
+                    record_info['journal'] = source_parts.pop(0).strip()
 
-                vol_num_year = source_parts.pop(0).strip()
+                if len(source_parts) >= 1:
+                    vol_num_year = source_parts.pop(0).strip()
+                else:
+                    vol_num_year = ""
                 pattern = r'(?:Vol\.|v\.)\s*(?P<volume>\d+)\s*(?:(?:No\.|N[úu]m\.|n\.)\s*(?P<number>\d+)\s*)?\((?P<year>\d{4})\)'
                 match = re.match(pattern, vol_num_year)
                 if match:
