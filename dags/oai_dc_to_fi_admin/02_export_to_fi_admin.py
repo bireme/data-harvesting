@@ -22,6 +22,7 @@ def get_doc_template(type='analytic'):
       "model" : "biblioref.reference",
       "fields": {
         "literature_type" : "S",
+        "type_of_journal" : "p",
         "indexed_database" : [1],
         "BIREME_reviewed" : False,
         "cooperative_center_code" : "BR1.1",
@@ -41,6 +42,7 @@ def get_doc_template(type='analytic'):
       "fields": {
         "item_form": "s",
         "literature_type" : "S",
+        "type_of_journal" : "p",
         "record_type" : "a",
         "treatment_level" : "as",
         "indexed_database" : [1],
@@ -215,7 +217,11 @@ def export_oai_dc_to_fi_admin():
                 doc_source[0]['fields']['interoperability_source'] = interoperability_source
 
                 if 'abstract' in result:
-                    doc[0]['fields']['abstract'] = result['abstract']
+                    normalized_abstracts = []
+                    for abstract in result['abstract']:
+                        abstract['_i'] = normalize_lang_code(abstract['_i'])
+                        normalized_abstracts.append(abstract)
+                    doc[0]['fields']['abstract'] = normalized_abstracts
 
                 if 'subjects' in result:
                     doc[0]['fields']['author_keyword'] = result['subjects']
