@@ -86,14 +86,24 @@ def normalize_lang_code(code):
 def normalize_pagination(pages):
     pages_normalized = []
 
-    if '-' in pages:
+    if 'e-' in pages:
+        pages = pages.replace('e-', '').strip()
+
+        pages_json = {'_e': str(pages)}
+        pages_normalized.append(pages_json)
+    elif pages.startswith('e'):
+        pages = pages.replace('e', '').strip()
+
+        pages_json = {'_e': str(pages)}
+        pages_normalized.append(pages_json)
+    elif '-' in pages:
         pages = pages.split('-')
         pages_f = pages[0].strip()
         pages_l = pages[1].strip()
 
         pages_json = {'_f': str(pages_f), '_l': str(pages_l)}
         pages_normalized.append(pages_json)
-    else:
+    elif pages:
        pages_json = {'_f': pages, '_l': pages}
 
     return pages_normalized

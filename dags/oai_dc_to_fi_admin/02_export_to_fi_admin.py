@@ -263,7 +263,9 @@ def export_oai_dc_to_fi_admin():
                     doc[1]['fields']['doi_number'] = result['doi']
 
                 if 'pagination' in result:
-                    doc[1]['fields']['pages'] = json.dumps(normalize_pagination(result['pagination']))
+                    pages = normalize_pagination(result['pagination'].strip())
+                    if pages:
+                        doc[1]['fields']['pages'] = json.dumps(pages)
 
                 if 'creators' in result:
                     doc[1]['fields']['individual_author'] = []
