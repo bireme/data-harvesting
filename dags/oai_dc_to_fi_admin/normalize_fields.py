@@ -89,12 +89,12 @@ def normalize_pagination(pages):
     if 'e-' in pages:
         pages = pages.replace('e-', '').strip()
 
-        pages_json = {'_e': str(pages)}
+        pages_json = {'_e': "e-" + str(pages)}
         pages_normalized.append(pages_json)
     elif pages.startswith('e'):
         pages = pages.replace('e', '').strip()
 
-        pages_json = {'_e': str(pages)}
+        pages_json = {'_e': "e-" + str(pages)}
         pages_normalized.append(pages_json)
     elif '-' in pages:
         pages = pages.split('-')
