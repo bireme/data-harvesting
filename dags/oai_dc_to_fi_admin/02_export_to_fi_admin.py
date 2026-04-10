@@ -249,8 +249,23 @@ def export_oai_dc_to_fi_admin():
                 if 'number' in result:
                     doc_source[1]['fields']['issue_number'] = result['number']
 
-                # if 'publishers' in result:
-                #     doc[1]['fields']['publisher'] = result['publishers'][0]["text"]
+                # DOI
+                doi_pattern = r'(10\.\d{4,9}/[-._;()/:A-Z0-9]+)'
+                doi = None
+                
+                for field_name in ['source', 'identifier']:
+                    field_data = result.get(field_name, [])
+                        
+                    for item in field_data:
+                        match = re.search(doi_pattern, item, re.IGNORECASE)
+                        if match:
+                            doi = match.group(1)
+                            break
+                    if doi:
+                        break
+                
+                if doi:
+                    doc[0]['fields']['doi_number'] = doi
 
                 if 'titles' in result:
                     normalized_titles = []
