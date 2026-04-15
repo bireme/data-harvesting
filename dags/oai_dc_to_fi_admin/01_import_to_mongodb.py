@@ -96,6 +96,8 @@ def import_oai_dc_to_mongodb():
                     record_info['issn'].append(source.text)
                 else:
                     record_info['issn'] = [source.text]
+            elif is_doi(source.text):
+                record_info['doi'] = source.text
             else:
                 source_val = {
                     'text': source.text,
@@ -137,12 +139,23 @@ def import_oai_dc_to_mongodb():
             if is_doi(identifier.text):
                 record_info['doi'] = identifier.text
             elif is_article_url(identifier.text):
-                record_info['fulltext_url'] = identifier.text
+                pass
+                #record_info['fulltext_url'] = identifier.text
             else:
                 if 'identifier' in record_info:
                     record_info['identifier'].append(identifier.text)
                 else:
                     record_info['identifier'] = [identifier.text]
+
+        return record_info
+
+
+    def parse_relations(relations):
+        record_info = {}
+
+        for relation in relations:
+            if is_article_url(relation.text):
+                record_info['fulltext_url'] = relation.text
 
         return record_info
 
@@ -180,6 +193,10 @@ def import_oai_dc_to_mongodb():
                 # Handle identifier tag
                 record_info.update(
                     parse_identifiers(dc.findall('./dc:identifier', namespaces=ns))
+                )
+
+                record_info.update(
+                    parse_relations(dc.findall('./dc:relation', namespaces=ns))
                 )
 
                 # Handle source tag
