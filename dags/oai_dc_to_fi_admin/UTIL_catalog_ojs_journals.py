@@ -2,6 +2,7 @@ import logging
 import re
 import requests
 from datetime import datetime
+from datetime import timedelta
 from airflow import DAG
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.operators.python import PythonOperator
@@ -14,8 +15,8 @@ def list_ojs_journals():
     collection = mongo_hook.get_collection('current', 'TITLE')    
     
     query = {
-        "editor_cc_code": {"$ne": None},
-        "online": {"$ne": None}
+        "online": {"$ne": None},
+        "index_range": {"$elemMatch": {"$regex": "\\^g"}}
     }
     projection = {"online": 1, "id": 1, "_id": 0}
     results = collection.find(query, projection)
@@ -51,10 +52,14 @@ def harvest_oai_url(journals):
 
         for url in valid_urls:
             oai_url = url.lower().replace('/issue/archive', '/oai')
-                 
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebkit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+            }
+
             try:                
                 # Testa se o endpoint OAI-PMH é válido
-                response = requests.get(oai_url, params={'verb': 'Identify'}, timeout=10)
+                response = requests.get(oai_url, params={'verb': 'Identify'}, headers=headers, timeout=15)
                 if response.status_code == 200 and '<OAI-PMH' in response.text:
                     logger.info(f"Confirmed OAI-PMH endpoint for {journal_id}: {oai_url}")
 
@@ -64,16 +69,30 @@ def harvest_oai_url(journals):
                         {'$set': {
                             'journal_id': journal_id,
                             'oai_url': oai_url,
-                            'updated_at': datetime.now()
+                            'updated_at': datetime.now(),
+                            'in_title': True
                         }},
                         upsert=True,
                         mongo_db='TITLE'
                     )
-
                 else:
-                    logger.warning(f"URL {oai_url} did not return a valid OAI-PMH response.")
+                    logger.warning(f"URL {oai_url} não retornou uma resposta OAI-PMH válida.")
+            except requests.exceptions.HTTPError as e:
+                logger.error(f"Erro HTTP para {oai_url}: {e}")
             except Exception as e:
-                logger.error(f"Error validating OAI-PMH endpoint for {journal_id}: {str(e)}")
+                logger.error(f"Erro ao validar endpoint OAI-PMH para {journal_id}: {str(e)}")
+        
+        # Atualiza registros que não foram encontrados na execução atual (mais de 2 dias atrás)
+        two_days_ago = datetime.now() - timedelta(days=2)
+        mongo_hook.update_many(
+            'ojs_oai_sources',
+            {
+                'updated_at': {'$lt': two_days_ago},
+                'in_title': True
+            },
+            {'$set': {'in_title': False}},
+            mongo_db='TITLE'
+        )
 
 
 default_args = {
