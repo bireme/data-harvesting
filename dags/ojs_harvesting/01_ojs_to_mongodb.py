@@ -75,7 +75,12 @@ def harvest_oai_url(journals):
                 # Clean "dirty" XML by removing non-printable control characters except tab, newline, return
                 xml_text = response.text
                 xml_cleaned = "".join(ch for ch in xml_text if ch.isprintable() or ch in "\t\n\r")
-                data_dict = xmltodict.parse(xml_cleaned, process_namespaces=False)
+                try:
+                    data_dict = xmltodict.parse(xml_cleaned, process_namespaces=False)
+                except Exception as e:
+                    logger.error(f"Erro ao parsear XML para {journal_id} ({prefix}): {e}")
+                    logger.info(f"XML problemático (primeiros 500 caracteres): {xml_text[:500]}")
+                    break
                 
                 # Extrai os registros individuais
                 records = data_dict.get('OAI-PMH', {}).get('ListRecords', {}).get('record', [])
