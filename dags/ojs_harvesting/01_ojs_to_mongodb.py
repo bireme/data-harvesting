@@ -1,6 +1,6 @@
 import logging
 import re
-import requests
+import cloudscraper
 import xmltodict
 from datetime import datetime
 import time
@@ -13,43 +13,40 @@ from pymongo import ReplaceOne
 
 def list_ojs_journals():
     logger = logging.getLogger(__name__)
-
     mongo_hook = MongoHook(mongo_conn_id='mongo')
     collection = mongo_hook.get_collection('ojs_oai_sources', 'TITLE')
     
-    query = {
-        "in_title": True
-    }
+    query = {"in_title": True}
     projection = {"journal_id": 1, "oai_url": 1, "_id": 0}
-    results = collection.find(query, projection)
+    results = list(collection.find(query, projection))
     
-    journals = list(results)
-    logger.info(f"{len(journals)} periódicos encontrados.")
+    logger.info(f"{len(results)} periódicos encontrados.")
     
-    return [[journals[i:i + 5]] for i in range(0, len(journals), 5)]
+    return [[results[i:i + 5]] for i in range(0, len(results), 5)]
 
 
 def harvest_oai_url(journals):
     logger = logging.getLogger(__name__)
-
     mongo_hook = MongoHook(mongo_conn_id='mongo')
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebkit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-    }
-    metadata_prefixes = ['oai_dc', 'marcxml']
     mongo_db = 'OJS'
+    
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+
+    metadata_prefixes = ['oai_dc', 'marcxml']
 
     for journal in journals:
         journal_id = journal.get('journal_id')
         oai_url = journal.get('oai_url')
 
         for prefix in metadata_prefixes:
-            logger.info(f"Processando periódico {journal_id} com prefixo {prefix}.")
+            logger.info(f"Iniciando {journal_id} com prefixo {prefix}.")
             collection_name = f"{journal_id}_{prefix}"
-
-            # Ensure unique index on 'id' exists
             coll = mongo_hook.get_collection(collection_name, mongo_db=mongo_db)
             coll.create_index("id", unique=True)
             
@@ -57,69 +54,85 @@ def harvest_oai_url(journals):
                 'verb': 'ListRecords',
                 'metadataPrefix': prefix
             }
+
             while params:
+                response_text = None
                 max_retries = 3
+                
                 for attempt in range(max_retries):
                     try:
-                        response = requests.get(oai_url, params=params, headers=headers, timeout=30)
+                        response = scraper.get(oai_url, params=params, timeout=60)
+                        
+                        if "awsWafCookieDomainList" in response.text:
+                            logger.error(f"Bloqueio WAF detectado para {oai_url}. Scraper não conseguiu resolver.")
+                            return 
+
                         response.raise_for_status()
+                        response_text = response.text
                         break
-                    except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout) as e:
+                    except Exception as e:
                         if attempt < max_retries - 1:
-                            wait_time = (attempt + 1) * 5
-                            logger.warning(f"Erro de conexão ({e}). Tentando novamente em {wait_time}s...")
-                            time.sleep(wait_time)
+                            wait = (attempt + 1) * 10
+                            logger.warning(f"Erro ({e}). Tentando novamente em {wait}s...")
+                            time.sleep(wait)
                         else:
-                            raise
+                            logger.error(f"Falha definitiva após {max_retries} tentativas.")
+                            params = None
+                            break
                 
-                # Clean "dirty" XML by removing non-printable control characters except tab, newline, return
-                xml_text = response.text
-                xml_cleaned = "".join(ch for ch in xml_text if ch.isprintable() or ch in "\t\n\r")
+                if not response_text:
+                    break
+
+                xml_cleaned = "".join(ch for ch in response_text if ch.isprintable() or ch in "\t\n\r")
+                
                 try:
                     data_dict = xmltodict.parse(xml_cleaned, process_namespaces=False)
-                except Exception as e:
-                    logger.error(f"Erro ao parsear XML para {journal_id} ({prefix}): {e}")
-                    logger.info(f"XML problemático (primeiros 500 caracteres): {xml_text[:500]}")
-                    break
-                
-                # Extrai os registros individuais
-                records = data_dict.get('OAI-PMH', {}).get('ListRecords', {}).get('record', [])
-                if isinstance(records, dict):  # Caso venha apenas um registro como dict
-                    records = [records]
+                    res_root = data_dict.get('OAI-PMH', {})
+                    
+                    if 'error' in res_root:
+                        logger.warning(f"OAI Error: {res_root['error']}")
+                        break
 
-                if records:
-                    operations = []
-                    for record in records:
-                        identifier = record.get('header', {}).get('identifier')
-                        metadata = record.get('metadata', {})
-                        
-                        if identifier and metadata:
+                    list_records = res_root.get('ListRecords', {})
+                    records = list_records.get('record', [])
+                    if isinstance(records, dict): records = [records]
+
+                    if records:
+                        operations = []
+                        for record in records:
+                            identifier = record.get('header', {}).get('identifier')
+                            metadata = record.get('metadata', {})
+                            
                             if prefix == 'oai_dc' and 'oai_dc:dc' in metadata:
                                 metadata = metadata['oai_dc:dc']
                             elif prefix == 'marcxml' and 'record' in metadata:
                                 metadata = metadata['record']
 
-                            # Remove '@' (XML namespaces)
-                            metadata = {k: v for k, v in metadata.items() if not k.startswith('@')}
+                            if identifier and metadata:
+                                clean_meta = {k: v for k, v in metadata.items() if not k.startswith('@')}
+                                clean_meta['id'] = identifier
+                                clean_meta['harvested_at'] = datetime.now()
+                                operations.append(ReplaceOne({'id': identifier}, clean_meta, upsert=True))
 
-                            metadata['id'] = identifier
-                            metadata['harvested_at'] = datetime.now()
-                            operations.append(ReplaceOne({'id': identifier}, metadata, upsert=True))
+                        if operations:
+                            coll.bulk_write(operations, ordered=False)
+                            logger.info(f"Salvos {len(operations)} registros.")
 
-                    if operations:
-                        coll.bulk_write(operations)
-                        logger.info(f"Inseridos {len(operations)} registros para {journal_id} ({prefix}).")
+                    # resumptionToken (paginacao)
+                    token_match = re.search(r'<resumptionToken[^>]*>(.*?)</resumptionToken>', response_text)
+                    if token_match and token_match.group(1):
+                        params = {
+                            'verb': 'ListRecords',
+                            'resumptionToken': token_match.group(1)
+                        }
+                    else:
+                        params = None
+                        logger.info(f"Concluído: {journal_id} ({prefix}).")
 
-                # Verifica se existe um resumptionToken para paginação
-                token_match = re.search(r'<resumptionToken[^>]*>(.*?)</resumptionToken>', response.text)
-                if token_match and token_match.group(1):
-                    params = {'verb': 'ListRecords', 'resumptionToken': token_match.group(1)}
-                    logger.info(f"Token de retomada encontrado para {journal_id} ({prefix}), buscando próxima página.")
-                else:
-                    params = None
-                    logger.info(f"Harvesting concluído para {journal_id} ({prefix}).")
+                except Exception as e:
+                    logger.error(f"Erro ao processar XML: {e}")
+                    break
 
-                    
 
 default_args = {
     'owner': 'airflow',
