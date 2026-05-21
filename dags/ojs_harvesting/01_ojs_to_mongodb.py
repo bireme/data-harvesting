@@ -6,17 +6,23 @@ from datetime import datetime
 import time
 from datetime import timedelta
 from airflow import DAG
+from airflow.models.param import Param
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.operators.python import PythonOperator
 from pymongo import ReplaceOne
 
 
-def list_ojs_journals():
+def list_ojs_journals(**context):
     logger = logging.getLogger(__name__)
     mongo_hook = MongoHook(mongo_conn_id='mongo')
     collection = mongo_hook.get_collection('ojs_oai_sources', 'TITLE')
     
     query = {"in_title": True}
+    journal_id = context.get("params", {}).get("journal_id")
+    if journal_id:
+        logger.info(f"Journal_id definido {journal_id}.")
+        query["journal_id"] = journal_id
+
     projection = {"journal_id": 1, "oai_url": 1, "_id": 0}
     results = list(collection.find(query, projection))
     
@@ -25,7 +31,7 @@ def list_ojs_journals():
     return [[results[i:i + 5]] for i in range(0, len(results), 5)]
 
 
-def harvest_oai_url(journals):
+def harvest_oai_url(journals, **context):
     logger = logging.getLogger(__name__)
     mongo_hook = MongoHook(mongo_conn_id='mongo')
     mongo_db = 'OJS'
@@ -37,6 +43,10 @@ def harvest_oai_url(journals):
             'desktop': True
         }
     )
+
+    from_date = context.get("params", {}).get("from_date")
+    if from_date:
+        logger.info(f"from_date definido {from_date}.")
 
     metadata_prefixes = ['oai_dc', 'marcxml']
 
@@ -54,6 +64,8 @@ def harvest_oai_url(journals):
                 'verb': 'ListRecords',
                 'metadataPrefix': prefix
             }
+            if from_date:
+                params['from'] = from_date
 
             while params:
                 response_text = None
@@ -141,6 +153,17 @@ default_args = {
 }
 with DAG(
     'DH_01_ojs_to_mongodb',
+    params={
+        "from_date": Param(
+            default=None,
+            type=["null", "string"],
+            maxLength=10,
+        ),
+        "journal_id": Param(
+            default=None,
+            type=["null", "integer"],
+        ),
+    },
     default_args=default_args,
     description='Data Harvesting - Harvesting de XML do OJS para o MongoDB',
     tags=["data_harvesting", "mongodb", "ojs", "journals"],
