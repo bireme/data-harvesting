@@ -79,6 +79,50 @@ def setup_ojs_transformed():
         client.drop_database(mongo_db)
 
 
+def get_marcxml_data(mongo_db, journal_id, record_id):
+    logger = logging.getLogger(__name__)
+    mongo_hook = MongoHook(mongo_conn_id='mongo')
+
+    marc_coll_name = f"{journal_id}_marcxml"
+    marc_coll = mongo_hook.get_collection(marc_coll_name, mongo_db=mongo_db)
+    marc_record = marc_coll.find_one({"id": record_id})
+    
+    authors = []
+    if marc_record:
+        datafields = marc_record.get('datafield', [])
+        if isinstance(datafields, dict):
+            datafields = [datafields]
+
+        for field in datafields:
+            tag = field.get('@tag')
+            if tag in ["100", "720"]:
+                subfields = field.get('subfield', [])
+                if isinstance(subfields, dict):
+                    subfields = [subfields]
+                
+                author_entry = {}
+                for sub in subfields:
+                    code = sub.get('@code')
+                    text = sub.get('#text', '')
+                    
+                    if code == 'a':
+                        author_entry['text'] = text
+                    elif code == 'u':
+                        author_entry['_1'] = text
+                    elif code == '0':
+                        if 'orcid.org' in text:
+                            author_entry['_k'] = text
+                        elif 'lattes.cnpq.br' in text:
+                            author_entry['_l'] = text
+                        elif '@' in text:
+                            author_entry['_e'] = text
+                
+                if author_entry.get('text'):
+                    authors.append(author_entry)
+    
+    return authors
+
+
 def transform_ojs_data():
     logger = logging.getLogger(__name__)
     mongo_hook = MongoHook(mongo_conn_id='mongo')
@@ -156,6 +200,10 @@ def transform_ojs_data():
 
             if not 'title' in doc[1]['fields']:
                 continue
+
+            marc_record = get_marcxml_data(mongo_db, journal_id, record['id'])
+            if marc_record:
+                doc[1]['fields']['individual_author'] = json.dumps(marc_record)
 
             if 'dc:subject' in record:
                 subjects = parse_multilang_field(record['dc:subject'])
