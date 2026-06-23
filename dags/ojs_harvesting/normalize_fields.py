@@ -3,6 +3,7 @@ from data_harvesting.dags.ojs_harvesting.common import is_doi
 from data_harvesting.dags.ojs_harvesting.common import is_issn
 import json
 import re
+import logging
 
 
 def get_source_sas_id(db_conn, journal, year, volume, number):
@@ -181,3 +182,58 @@ def parse_multilang_field(raw_data):
                 entry['_i'] = normalize_lang_code(lang)
             parsed_list.append(entry)
     return parsed_list
+
+
+def get_subfield_numbers(code, item):
+    match = re.search(rf'\^{code}([^^]*)', item)
+    if match:
+        raw_text = match.group(1)
+        # \D removes everything that is NOT a digit (0-9)
+        numbers_only = re.sub(r'\D', '', raw_text)
+        return int(numbers_only) if numbers_only else None
+    return None
+
+
+def safe_int(value):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def assemble_indexed_db(mongo_hook, index_range, year, volume, number):
+    logger = logging.getLogger(__name__)
+
+    year = safe_int(year)
+    volume = safe_int(volume)
+    number = safe_int(number)
+
+    if isinstance(index_range, str):
+        index_range = [index_range]
+        
+    indexed_db = []
+    collection = mongo_hook.get_collection('cod_index', mongo_db='TITLE')
+
+    for item in index_range:
+        root = item.split('^')[0]
+            
+        start_volume = get_subfield_numbers('a', item)
+        start_number = get_subfield_numbers('b', item)
+        start_year = get_subfield_numbers('c', item)
+        end_year = get_subfield_numbers('f', item)
+
+        if start_year and year >= start_year:
+            if end_year and year > end_year:
+                continue
+
+            if start_volume and volume and volume < start_volume:
+                continue
+
+            if start_number and number and number < start_number:
+                continue
+
+            match = collection.find_one({"indice": root})
+            if match and "indexed_database" in match:
+                indexed_db.append(match["indexed_database"])
+
+    return indexed_db

@@ -17,6 +17,7 @@ from data_harvesting.dags.ojs_harvesting.normalize_fields import get_source_sas_
 from data_harvesting.dags.ojs_harvesting.normalize_fields import parse_sources
 from data_harvesting.dags.ojs_harvesting.normalize_fields import parse_relations
 from data_harvesting.dags.ojs_harvesting.normalize_fields import parse_identifiers
+from data_harvesting.dags.ojs_harvesting.normalize_fields import assemble_indexed_db
 
 
 def get_doc_template(type='analytic'):
@@ -26,7 +27,6 @@ def get_doc_template(type='analytic'):
             "fields": {
             "literature_type" : "S",
             "type_of_journal" : "p",
-            "indexed_database" : [1],
             "BIREME_reviewed" : False,
             "cooperative_center_code" : "BR1.1",
             "created_by" : 2,
@@ -48,7 +48,6 @@ def get_doc_template(type='analytic'):
             "type_of_journal" : "p",
             "record_type" : "a",
             "treatment_level" : "as",
-            "indexed_database" : [1],
             "BIREME_reviewed" : False,
             "cooperative_center_code" : "BR1.1",
             "created_by" : 2,
@@ -146,9 +145,10 @@ def transform_ojs_data():
         collection = mongo_hook.get_collection(coll_name, mongo_db=mongo_db)
 
         journal_id = coll_name.split('_')[0]
-        journal_data = get_journal_data(journal_id)
+        journal_data = get_journal_data(mongo_hook, journal_id)
         journal_issn = journal_data.get('issn')
         journal_title = journal_data.get('journal')
+        index_range = journal_data.get('index_range')
 
         if not journal_title:
             continue
@@ -242,6 +242,13 @@ def transform_ojs_data():
                 volume = doc_source[1]['fields']['volume_serial']
             if 'issue_number' in doc_source[1]['fields']:
                 number = doc_source[1]['fields']['issue_number']
+
+            # add indexed_database
+            if index_range and year:
+                indexed_database = assemble_indexed_db(mongo_hook, index_range, year, volume, number)
+                if indexed_database:
+                    doc[0]['fields']['indexed_database'] = indexed_database
+                    doc_source[0]['fields']['indexed_database'] = indexed_database
 
             # add reference_title
             title_analytic = doc[1]['fields']['title'][0]['text']
