@@ -104,8 +104,8 @@ with DAG(
     'DH_UTIL_catalog_ojs_journals',
     default_args=default_args,
     description='Data Harvesting - Catalogação de periódicos OJS para o MongoDB',
+    schedule="0 18 * * 1-5",
     tags=["data_harvesting", "mongodb", "ojs", "journals"],
-    schedule=None,
     catchup=False
 ) as dag:
     list_journals_task = PythonOperator(
