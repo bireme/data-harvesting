@@ -166,6 +166,7 @@ with DAG(
     },
     default_args=default_args,
     description='Data Harvesting - Harvesting de XML do OJS para o MongoDB',
+    schedule="0 18 * * 1-5",
     tags=["data_harvesting", "mongodb", "ojs", "journals"],
     schedule=None,
     catchup=False

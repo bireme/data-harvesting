@@ -2,7 +2,6 @@ import requests
 import re
 import logging
 from airflow.models import Variable
-from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.exceptions import AirflowException
 
 
@@ -37,6 +36,26 @@ def check_duplicate(journal_title, article_title, publication_year):
         logging.error(f"Error checking duplicates: {e}")
         # On error, assume no duplicate to avoid blocking the process
         return False, None
+
+
+def check_duplicate_doi(db_conn, doi):
+    """
+    Check for duplicates based on DOI
+    Returns: bool
+    """
+    query = """
+        SELECT reference_ptr_id, doi_number 
+        FROM biblioref_referenceanalytic 
+        WHERE 
+            doi_number = %s AND 
+            reference_ptr_id IN (SELECT id FROM biblioref_reference WHERE treatment_level = 'as')
+    """
+    with db_conn.cursor() as cursor:
+        cursor.execute(query, (doi,))
+        result = cursor.fetchone()
+        if result:
+            return True
+    return False
 
 
 def is_doi(s):

@@ -8,6 +8,7 @@ from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.mysql.hooks.mysql import MySqlHook
 from airflow.operators.python import PythonOperator
 from data_harvesting.dags.ojs_harvesting.common import check_duplicate
+from data_harvesting.dags.ojs_harvesting.common import check_duplicate_doi
 from data_harvesting.dags.ojs_harvesting.common import get_journal_data
 from data_harvesting.dags.ojs_harvesting.common import get_fiadmin_last_id
 from data_harvesting.dags.ojs_harvesting.normalize_fields import parse_multilang_field
@@ -170,6 +171,24 @@ def transform_ojs_data():
             doc_source[1]['fields']['title_serial'] = journal_title
             doc_source[1]['fields']['issn'] = journal_issn
 
+            if 'dc:source' in record:
+                sources = parse_sources(record['dc:source'])
+
+                if 'doi' in sources:
+                    doc[1]['fields']['doi_number'] = sources['doi']
+                    doc_source[1]['fields']['doi_number'] = sources['doi']
+
+                if 'volume' in sources:
+                    doc_source[1]['fields']['volume_serial'] = sources['volume']
+
+                if 'number' in sources:
+                    doc_source[1]['fields']['issue_number'] = sources['number']
+
+                if 'pagination' in sources:
+                    pages = normalize_pagination(sources['pagination'])
+                    if pages:
+                        doc[1]['fields']['pages'] = json.dumps(pages)
+
             if 'dc:date' in record:
                 doc[0]['fields']['publication_date_normalized'] = record['dc:date']
 
@@ -187,6 +206,12 @@ def transform_ojs_data():
                 if 'doi' in identifiers:
                     doc[1]['fields']['doi_number'] = identifiers['doi']
                     doc_source[1]['fields']['doi_number'] = identifiers['doi']
+
+            if 'doi_number' in doc[1]['fields'] and doc[1]['fields']['doi_number']:
+                is_duplicate = check_duplicate_doi(fiadmindb_conn, doc[1]['fields']['doi_number'])
+                if is_duplicate:
+                    logger.info(f"Duplicate DOI found: {doc[1]['fields']['doi_number']}. Skipping record ID: {record['id']}")
+                    continue
 
             if 'dc:description' in record:
                 abstracts = parse_multilang_field(record['dc:description'])
@@ -209,24 +234,6 @@ def transform_ojs_data():
                 subjects = parse_multilang_field(record['dc:subject'])
                 if subjects:
                     doc[0]['fields']['author_keyword'] = subjects
-
-            if 'dc:source' in record:
-                sources = parse_sources(record['dc:source'])
-
-                if 'doi' in sources:
-                    doc[1]['fields']['doi_number'] = sources['doi']
-                    doc_source[1]['fields']['doi_number'] = sources['doi']
-
-                if 'volume' in sources:
-                    doc_source[1]['fields']['volume_serial'] = sources['volume']
-
-                if 'number' in sources:
-                    doc_source[1]['fields']['issue_number'] = sources['number']
-
-                if 'pagination' in sources:
-                    pages = normalize_pagination(sources['pagination'])
-                    if pages:
-                        doc[1]['fields']['pages'] = json.dumps(pages)
 
             # Initialize journal, year, volume, and number
             journal = ""
