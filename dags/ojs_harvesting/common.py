@@ -76,7 +76,7 @@ def is_issn(s):
 def get_journal_data(mongo_hook, journal_id):
     collection = mongo_hook.get_collection('current', 'TITLE')
     query = {"id": int(journal_id)}
-    projection = {"issn": 1, "shortened_title": 1, "title": 1, "index_range": 1, "_id": 0}
+    projection = {"issn": 1, "shortened_title": 1, "title": 1, "index_range": 1, "editor_cc_code": 1, "_id": 0}
     result = collection.find_one(query, projection)
 
     journal_data = {}
@@ -84,7 +84,7 @@ def get_journal_data(mongo_hook, journal_id):
         journal_data['journal'] = result.get('shortened_title') or result.get('title')
         journal_data['issn'] = result.get('issn')
         journal_data['index_range'] = result.get('index_range')
-
+        journal_data['editor_cc_code'] = result.get('editor_cc_code')
     return journal_data
 
 

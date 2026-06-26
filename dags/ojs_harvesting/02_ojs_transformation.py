@@ -150,6 +150,7 @@ def transform_ojs_data():
         journal_issn = journal_data.get('issn')
         journal_title = journal_data.get('journal')
         index_range = journal_data.get('index_range')
+        editor_cc_code = journal_data.get('editor_cc_code').strip()
 
         if not journal_title:
             continue
@@ -164,12 +165,16 @@ def transform_ojs_data():
             doc[0]['fields']['updated_time'] = now
             doc_source[0]['fields']['updated_time'] = now
 
-            interoperability_source = json.dumps({'_': 'HARVEST_DATA', '_b': coll_name, '_i': record['id']})
+            interoperability_source = json.dumps({'_': 'HARVEST_DATA_OJS', '_b': coll_name, '_i': record['id']})
             doc[0]['fields']['interoperability_source'] = interoperability_source
             doc_source[0]['fields']['interoperability_source'] = interoperability_source
 
             doc_source[1]['fields']['title_serial'] = journal_title
             doc_source[1]['fields']['issn'] = journal_issn
+
+            if editor_cc_code:
+                doc_source[0]['fields']['cooperative_center_code'] = editor_cc_code
+                doc[0]['fields']['cooperative_center_code'] = editor_cc_code
 
             if 'dc:source' in record:
                 sources = parse_sources(record['dc:source'])
