@@ -38,24 +38,28 @@ def check_duplicate(journal_title, article_title, publication_year):
         return False, None
 
 
-def check_duplicate_doi(db_conn, doi):
-    """
-    Check for duplicates based on DOI
-    Returns: bool
-    """
-    query = """
-        SELECT reference_ptr_id, doi_number 
-        FROM biblioref_referenceanalytic 
-        WHERE 
-            doi_number = %s AND 
-            reference_ptr_id IN (SELECT id FROM biblioref_reference WHERE treatment_level = 'as')
-    """
-    with db_conn.cursor() as cursor:
-        cursor.execute(query, (doi,))
-        result = cursor.fetchone()
-        if result:
-            return True
-    return False
+def check_duplicate_doi(mongo_hook, doi):
+    collection = mongo_hook.get_collection('id_doi', mongo_db='OJS_ADM')
+    result = collection.find_one({"doi": doi})
+    return bool(result)
+
+
+def check_duplicate_ojs_id(mongo_hook, interoperability_source):
+    collection = mongo_hook.get_collection('id_ojs', mongo_db='OJS_ADM')
+    result = collection.find_one({"interoperability_source": interoperability_source})
+    return bool(result)
+
+
+def check_duplicate_nao_fiadmin(mongo_hook, ojs_id):
+    collection = mongo_hook.get_collection('ojs_nao_fi-admin', mongo_db='OJS_ADM')
+    result = collection.find_one({"ID": ojs_id})
+    return bool(result)
+
+
+def check_duplicate_url(mongo_hook, url):
+    collection = mongo_hook.get_collection('id_url', mongo_db='OJS_ADM')
+    result = collection.find_one({"electronic_address": url})
+    return bool(result)
 
 
 def is_doi(s):

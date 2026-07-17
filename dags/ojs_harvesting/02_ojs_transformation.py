@@ -9,6 +9,9 @@ from airflow.providers.mysql.hooks.mysql import MySqlHook
 from airflow.operators.python import PythonOperator
 from data_harvesting.dags.ojs_harvesting.common import check_duplicate
 from data_harvesting.dags.ojs_harvesting.common import check_duplicate_doi
+from data_harvesting.dags.ojs_harvesting.common import check_duplicate_ojs_id
+from data_harvesting.dags.ojs_harvesting.common import check_duplicate_nao_fiadmin
+from data_harvesting.dags.ojs_harvesting.common import check_duplicate_url
 from data_harvesting.dags.ojs_harvesting.common import get_journal_data
 from data_harvesting.dags.ojs_harvesting.common import get_fiadmin_last_id
 from data_harvesting.dags.ojs_harvesting.normalize_fields import parse_multilang_field
@@ -79,9 +82,8 @@ def setup_ojs_transformed():
         client.drop_database(mongo_db)
 
 
-def get_marcxml_data(mongo_db, journal_id, record_id):
+def get_marcxml_data(mongo_hook, mongo_db, journal_id, record_id):
     logger = logging.getLogger(__name__)
-    mongo_hook = MongoHook(mongo_conn_id='mongo')
 
     marc_coll_name = f"{journal_id}_marcxml"
     marc_coll = mongo_hook.get_collection(marc_coll_name, mongo_db=mongo_db)
@@ -212,11 +214,37 @@ def transform_ojs_data():
                     doc[1]['fields']['doi_number'] = identifiers['doi']
                     doc_source[1]['fields']['doi_number'] = identifiers['doi']
 
+            # -------------------------------------------------------------
+            # Check de duplicatas no MongoDB
+            # -------------------------------------------------------------
+
+            # 1. OJS ID
+            if check_duplicate_ojs_id(mongo_hook, record['id']):
+                logger.info(f"Duplicate OJS ID found in id_ojs: {record['id']}. Skipping record.")
+                continue
+
+            # 2. DOI
             if 'doi_number' in doc[1]['fields'] and doc[1]['fields']['doi_number']:
-                is_duplicate = check_duplicate_doi(fiadmindb_conn, doc[1]['fields']['doi_number'])
-                if is_duplicate:
+                if check_duplicate_doi(mongo_hook, doc[1]['fields']['doi_number']):
                     logger.info(f"Duplicate DOI found: {doc[1]['fields']['doi_number']}. Skipping record ID: {record['id']}")
                     continue
+
+            # 3. nao_fiadmin
+            if check_duplicate_nao_fiadmin(mongo_hook, record['id']):
+                logger.info(f"Duplicate OJS ID found in ojs_nao_fi-admin: {record['id']}. Skipping record.")
+                continue
+
+            # 4. OJS URL
+            if 'electronic_address' in doc[0]['fields'] and doc[0]['fields']['electronic_address']:
+                try:
+                    parsed_addresses = json.loads(doc[0]['fields']['electronic_address'])
+                    url_to_check = parsed_addresses[0].get('_u')
+                    
+                    if url_to_check and check_duplicate_url(mongo_hook, url_to_check):
+                        logger.info(f"Duplicate URL found: {url_to_check}. Skipping record ID: {record['id']}")
+                        continue
+                except (json.JSONDecodeError, IndexError, AttributeError) as e:
+                    logger.warning(f"Could not parse electronic_address for record ID {record['id']}. Error: {e}")
 
             if 'dc:description' in record:
                 abstracts = parse_multilang_field(record['dc:description'])
@@ -231,7 +259,7 @@ def transform_ojs_data():
             if not 'title' in doc[1]['fields']:
                 continue
 
-            marc_record = get_marcxml_data(mongo_db, journal_id, record['id'])
+            marc_record = get_marcxml_data(mongo_hook, mongo_db, journal_id, record['id'])
             if marc_record:
                 doc[1]['fields']['individual_author'] = json.dumps(marc_record)
 

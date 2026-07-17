@@ -111,10 +111,14 @@ def parse_identifiers(identifiers):
 
 
 def parse_relations(relations):
-  for relation in relations:
-      if is_article_url(relation):
-          return json.dumps([{'_g': True, '_u': relation}])
-  return None
+    if isinstance(relations, str):
+        relations = [relations]
+        
+    for relation in relations:
+        if is_article_url(relation):
+            return json.dumps([{'_g': True, '_u': relation}])
+            
+    return None
 
 
 def parse_sources(sources):
