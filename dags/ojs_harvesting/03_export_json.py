@@ -10,17 +10,10 @@ from airflow.providers.mysql.hooks.mysql import MySqlHook
 from airflow.operators.python import PythonOperator
 
 
-sources_cache = {}
-
 def fetch_source_from_mysql(mysql_cursor, source_id):
     """Busca tit_serie, vol, num, issn no MySQL quando source_id já existia."""
     logger = logging.getLogger(__name__)
-    if not mysql_cursor or not source_id:
-        return "", "", "", ""
-    
-    if source_id in sources_cache:
-        return sources_cache[source_id]
-    
+
     try:
         query = """
             SELECT 
@@ -42,7 +35,6 @@ def fetch_source_from_mysql(mysql_cursor, source_id):
         logger.warning(f"Erro ao consultar fonte {source_id} no MySQL: {err}")
         res = ("", "", "", "")
 
-    sources_cache[source_id] = res
     return res
 
 
@@ -77,7 +69,8 @@ def export_slices_to_json():
         "Tipo de literatura", "Nível de Tratamento", "Data de Publicação", 
         "Ano de Publicação", "Título - Série", 
         "Volume", "Número", "ISSN", "Título - Artigo", "Página", "URL", 
-        "Indexado em", "Palavra chave do Autor", "Resumo"
+        #"Indexado em", "Palavra chave do Autor", "Resumo"
+        "Indexado em"
     ]
     
     with open(report_csv_path, 'w', encoding='utf-8', newline='') as csv_file:
@@ -90,6 +83,8 @@ def export_slices_to_json():
             coll_folder_path = os.path.join(file_export_path, coll_name)
             os.makedirs(coll_folder_path, exist_ok=True)
             
+            sources_cache = {}
+
             collection = mongo_hook.get_collection(coll_name, mongo_db=mongo_db)
             records = collection.find({})
             
@@ -204,13 +199,24 @@ def export_slices_to_json():
                         num = fields.get('issue_number', num)
                         issn = fields.get('issn', issn)
 
-                # --- SE OS DADOS DA FONTE NÃO ESTAVAM NO JSON, BUSCA NO MYSQL ---
-                if id_fonte and not (tit_serie or vol or num or issn):
+                # Verifica o cache antes de chamar o MySQL
+                if id_fonte and not tit_serie and id_fonte in sources_cache:
+                    tit_serie, vol, num, issn = sources_cache[id_fonte]
+                    
+                # Se o registro atual NÃO possui tit_serie e NÃO estava no cache, buscamos via MySQL
+                elif id_fonte and not tit_serie:
                     m_tit_serie, m_vol, m_num, m_issn = fetch_source_from_mysql(mysql_cursor, id_fonte)
                     tit_serie = m_tit_serie
                     vol = m_vol
                     num = m_num
                     issn = m_issn
+
+                # --- CONTROLE DE CACHE DA FONTE ---
+                # Se o JSON já trouxe os dados da fonte (tit_serie), nós os salvamos no cache
+                # associados ao id_fonte para os próximos registros reaproveitarem.
+                if id_fonte and tit_serie:
+                    if id_fonte not in sources_cache:
+                        sources_cache[id_fonte] = (tit_serie, vol, num, issn)
 
                 csv_row = [
                     "",                # Marcar /p Apagar
@@ -228,8 +234,8 @@ def export_slices_to_json():
                     pagina,
                     url,
                     indexado,
-                    palavras_chave,
-                    resumo
+                    #palavras_chave,
+                    #resumo
                 ]
                 csv_writer.writerow(csv_row)
 
