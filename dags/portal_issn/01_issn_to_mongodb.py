@@ -7,13 +7,13 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.mongo.hooks.mongo import MongoHook
 
 
-def fetch_jwt_token():
+def fetch_jwt_token(session):
     logger = logging.getLogger("airflow.task")
     auth_url = "https://api.issn.org/authenticate/birembra1/issn"
     headers = {"Accept": "application/json"}
 
     logger.info("Solicitando Novo Token JWT")
-    response = requests.get(auth_url, headers=headers, timeout=10)
+    response = session.get(auth_url, headers=headers, timeout=10)
     response.raise_for_status()
 
     try:
@@ -41,44 +41,49 @@ def process_issn_records():
             "$nin": [None, "", " "]
         }
     }
-    cursor = source_collection.find(query)
+    cursor = source_collection.find(query, no_cursor_timeout=True).batch_size(100)
 
     jwt_token = None
-    for index, record in enumerate(cursor):
-        if index % 1000 == 0:
-            try:
-                jwt_token = fetch_jwt_token()
-            except RequestException as e:
-                logger.error(f"Failed to fetch JWT token at index {index}: {e}")
-                raise
-
-        issn = record.get("issn")
-        if not issn or not str(issn).strip():
-            continue
-
-        issn_clean = str(issn).strip()
-        notice_url = f"https://api.issn.org/notice/{issn_clean}?natifjson=true"
-        headers = {
-            "Accept": "application/json",
-            "Authorization": f"JWT {jwt_token}"
-        }
-
+    with requests.Session() as session:
         try:
-            response = requests.get(notice_url, headers=headers, timeout=10)
-            response.raise_for_status()
-            response_json = response.json()
-            logger.info(f"Processed ISSN: {issn_clean}")
+            for index, record in enumerate(cursor):
+                if index % 500 == 0 or jwt_token is None:
+                    try:
+                        jwt_token = fetch_jwt_token(session)
+                    except RequestException as e:
+                        logger.error(f"Failed to fetch JWT token at index {index}: {e}")
+                        raise
 
-            response_json['issn'] = issn_clean
-            target_collection.update_one(
-                {"issn": issn_clean},
-                {"$set": response_json},
-                upsert=True
-            )
-        except RequestException as e:
-            logger.error(f"Failed request for ISSN {issn_clean}: {e}")
+                issn = record.get("issn")
+                if not issn or not str(issn).strip():
+                    continue
 
-    logger.info("Finished processing all matching records.")
+                issn_clean = str(issn).strip()
+                notice_url = f"https://api.issn.org/notice/{issn_clean}?natifjson=true"
+                headers = {
+                    "Accept": "application/json",
+                    "Authorization": f"JWT {jwt_token}"
+                }
+
+                try:
+                    response = session.get(notice_url, headers=headers, timeout=10)
+                    response.raise_for_status()
+                    response_json = response.json()
+                    logger.info(f"Processed ISSN: {issn_clean}")
+
+                    response_json['issn'] = issn_clean
+                    target_collection.update_one(
+                        {"issn": issn_clean},
+                        {"$set": response_json},
+                        upsert=True
+                    )
+                except RequestException as e:
+                    logger.error(f"Failed request for ISSN {issn_clean}: {e}")
+
+            logger.info("Finished processing all matching records.")
+
+        finally:
+            cursor.close()
 
 
 default_args = {
