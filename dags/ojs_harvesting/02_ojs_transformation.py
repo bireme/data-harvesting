@@ -228,6 +228,9 @@ def transform_ojs_data(coll_name, id_offset):
                 doc[1]['fields']['doi_number'] = identifiers['doi']
                 doc_source[1]['fields']['doi_number'] = identifiers['doi']
 
+            if 'url' in identifiers and 'electronic_address' not in doc[0]['fields']:
+                doc[0]['fields']['electronic_address'] = identifiers['url']
+
         # -------------------------------------------------------------
         # Check de duplicatas no MongoDB
         # -------------------------------------------------------------
