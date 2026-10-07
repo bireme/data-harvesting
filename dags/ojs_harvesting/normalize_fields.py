@@ -99,7 +99,7 @@ def parse_identifiers(identifiers):
     for identifier in identifiers:
         if is_doi(identifier):
             record_info['doi'] = identifier
-        elif is_article_url(identifier.text):
+        elif is_article_url(identifier):
             record_info['url'] = identifier
         """else:
             if 'identifier' in record_info:
