@@ -49,6 +49,7 @@ def compare_issn_records(**context):
             # Get corresponding values from current collection
             current_title = current_record.get('title')
             current_subtitle = current_record.get('subtitle')
+            current_id_number = current_record.get('id_number')
 
             diffs = {}
 
@@ -60,9 +61,11 @@ def compare_issn_records(**context):
             if portal_subtitle and portal_subtitle != current_subtitle:
                 diffs['subtitle'] = portal_subtitle
 
-            # If any comparison is different, record it
             if diffs:
-                row_data = {'issn': issn}
+                row_data = {
+                    'issn': issn,
+                    'id_number': current_id_number
+                }
                 row_data.update(diffs)
                 discrepancies.append(row_data)
 
@@ -83,10 +86,10 @@ def compare_issn_records(**context):
         issn_export_path, f"issn_discrepancies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
 
-    fieldnames = ['issn']
+    fieldnames = ['issn', 'id_number']
     for item in discrepancies:
         for key in item.keys():
-            if key != 'issn' and key not in fieldnames:
+            if key not in fieldnames:
                 fieldnames.append(key)
 
     with open(csv_filename, mode='w', newline='', encoding='utf-8') as csv_file:
