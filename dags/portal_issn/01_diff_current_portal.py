@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import csv
 import logging
 import os
+import re
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
@@ -27,6 +28,37 @@ def extract_control_field(fields_array, field_code):
             elif isinstance(val, dict):
                 return val.get('value') or val.get('_') or str(val)
     return None
+
+
+def parse_marc_362(text):
+    """
+    Parses MARC field 362 subfield $a to extract start and optional final volume, number, and year.
+    Example 1: Vol. 35, no. 1 (Jan. 1969)-
+    Example 2: Vol. 21, no. 3 (Mar. 1979)-v. 41, no. 6 (Nov./Dec. 1999).
+    """
+    if not text:
+        return None, None, None, None, None, None
+    
+    text = text.strip()
+    pattern = re.compile(
+        r'(?:[Vv]ol\.?|v\.?)\s*([^,]+),\s*no\.?\s*([^\(]+)\s*\([^\)]*?(\d{4})\)'
+        r'(?:.*?-\s*(?:[Vv]ol\.?|v\.?)\s*([^,]+),\s*no\.?\s*([^\(]+)\s*\([^\)]*?(\d{4})\))?',
+        re.IGNORECASE
+    )
+    
+    match = pattern.search(text)
+    if match:
+        start_vol = match.group(1).strip()
+        start_no = match.group(2).strip()
+        start_year = match.group(3).strip()
+        
+        end_vol = match.group(4).strip() if match.group(4) else None
+        end_no = match.group(5).strip() if match.group(5) else None
+        end_year = match.group(6).strip() if match.group(6) else None
+        
+        return start_vol, start_no, start_year, end_vol, end_no, end_year
+    
+    return None, None, None, None, None, None
 
 
 def compare_issn_records(**context):
@@ -127,37 +159,64 @@ def compare_dates_and_status_records(**context):
         if current_record:
             id_number = current_record.get('id_number')
 
-            # Extract field 008
+            # 1. Extract Field 008 (Status and Dates)
             field_008 = extract_control_field(fields, '008')
+            portal_status = None
             portal_initial_date = None
             portal_final_date = None
 
-            if field_008 and len(field_008) >= 15:
-                # Chars 07 to 10 (Python index 7 to 11)
-                portal_initial_date = field_008[7:11]
-                # Chars 11 to 14 (Python index 11 to 15)
-                portal_final_date = field_008[11:15]
-            print(f"ISSN: {issn}, Portal Initial Date: {portal_initial_date}, Portal Final Date: {portal_final_date}")
+            if field_008:
+                if len(field_008) > 6:
+                    portal_status = field_008[6]
+                
+                if len(field_008) >= 15:
+                    portal_initial_date = field_008[7:11]
+                    portal_final_date = field_008[11:15]
 
+            # 2. Extract Field 362 (Volumes, Numbers, Years)
+            field_362 = extract_field_value(fields, '362', 'a')
+            start_vol, start_no, start_year, final_vol, final_no, final_year = parse_marc_362(field_362)
+
+            # Get current record values
             current_status = current_record.get('status')
             current_initial_date = current_record.get('initial_date')
             current_final_date = current_record.get('final_date')
+            current_start_vol = current_record.get('start_volume')
+            current_start_no = current_record.get('start_number')
+            current_start_year = current_record.get('start_year')
+            current_final_vol = current_record.get('final_volume')
+            current_final_no = current_record.get('final_number')
+            current_final_year = current_record.get('final_year')
 
+            # Check for discrepancies across 008 and 362 fields
             if (
+                (portal_status and current_status and portal_status.lower() != current_status.lower()) or
                 (portal_initial_date and portal_initial_date != current_initial_date) or
-                (portal_final_date and portal_final_date != current_final_date)
+                (portal_final_date and portal_final_date != current_final_date) or
+                (start_vol and start_vol != current_start_vol) or
+                (start_no and start_no != current_start_no) or
+                (start_year and start_year != current_start_year) or
+                (final_vol and final_vol != current_final_vol) or
+                (final_no and final_no != current_final_no) or
+                (final_year and final_year != current_final_year)
             ):
                 row_data = {
                     'id_number': id_number,
                     'issn': issn,
-                    'status': current_status,
-                    'initial_date': portal_initial_date if portal_initial_date else current_initial_date,
-                    'final_date': portal_final_date if portal_final_date else current_final_date,
+                    'status': portal_status,
+                    'initial_date': portal_initial_date,
+                    'final_date': portal_final_date,
+                    'start_volume': start_vol,
+                    'start_number': start_no,
+                    'start_year': start_year,
+                    'final_volume': final_vol,
+                    'final_number': final_no,
+                    'final_year': final_year,
                 }
                 discrepancies.append(row_data)
 
     if not discrepancies:
-        logger.info("No date/status discrepancies found. No CSV created.")
+        logger.info("No date, status, or MARC 362 discrepancies found. No CSV created.")
         return
 
     file_export_path = Variable.get("OAI_DC_INPUT_PATH")
@@ -169,7 +228,11 @@ def compare_dates_and_status_records(**context):
         issn_export_path, f"issn_dates_status_discrepancies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
 
-    fieldnames = ['id_number', 'issn', 'status', 'initial_date', 'final_date']
+    fieldnames = [
+        'id_number', 'issn', 'status', 'initial_date', 'final_date',
+        'start_volume', 'start_number', 'start_year',
+        'final_volume', 'final_number', 'final_year'
+    ]
 
     with open(csv_filename, mode='w', newline='', encoding='utf-8') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -177,7 +240,7 @@ def compare_dates_and_status_records(**context):
         for row in discrepancies:
             writer.writerow(row)
 
-    logger.info("Dates/status CSV successfully written to %s with %d records.", csv_filename, len(discrepancies))
+    logger.info("Consolidated CSV successfully written to %s with %d records.", csv_filename, len(discrepancies))
 
 
 default_args = {
@@ -188,7 +251,7 @@ default_args = {
 with DAG(
     'ISSN_01_diff_current_portal',
     default_args=default_args,
-    description=('Compara portal_issn e current no MongoDB (Títulos e Datas/Status)'),
+    description=('Compara portal_issn e current no MongoDB (Títulos, Datas, Status e 362)'),
     schedule_interval=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
